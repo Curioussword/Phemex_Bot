@@ -10,7 +10,7 @@ def load_config():
 
     try:
 
-        with open(os.path.join(os.path.dirname(__file__), '../config/config.yaml'), 'r') as file:
+        with open(os.path.join(os.path.dirname(__file__), 'config', 'config.yaml'), 'r') as file:
 
             config = yaml.safe_load(file)
 
