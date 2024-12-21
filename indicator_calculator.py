@@ -1,3 +1,6 @@
+import pandas as pd
+import time
+
 class IndicatorCalculator:
     @staticmethod
     def calculate_ema(data, period):

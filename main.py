@@ -2,6 +2,8 @@ import time
 from datetime import datetime
 import numpy as np
 from tqdm import tqdm
+import pandas as pd
+
 
 from utils import load_config
 from data_fetcher import fetch_live_data_with_cache
@@ -10,20 +12,39 @@ from indicator_tracker import PhemexBot
 from state_manager import StateManager
 from dqn_agent import DQNLSTMAgent  # LSTM-based DQN Agent
 from bot import execute_trade, calculate_tp_sl  # Trade execution utilities
+import tensorflow as tf
+import os
+
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"  # Use GPU 1
 
 
 class TradingSystem:
     def __init__(self):
-        # Load configuration
+        # Enable TensorFlow GPU memory growth
+        gpus = tf.config.list_physical_devices('GPU')
+        if gpus:
+            try:
+                for gpu in gpus:
+                    tf.config.experimental.set_memory_growth(gpu, True)
+                print("[INFO] Enabled GPU memory growth.")
+            except RuntimeError as e:
+                print(f"[ERROR] Failed to set GPU memory growth: {e}")
+
+        print("[INFO] Loading configuration...")
         self.config = load_config()
 
-        # Initialize exchange and components
+        print("[INFO] Initializing exchange...")
         self.exchange = initialize_exchange()
+
+        print("[INFO] Initializing state manager...")
         self.state_manager = StateManager(self.exchange)
+
+        print("[INFO] Initializing PhemexBot...")
         self.bot = PhemexBot()
 
-        # Initialize LSTM-Based DQN Agent
-        state_size = 6  # Example: EMA_20, EMA_200, ATR, VWAP, volatility, current_price
+        print("[INFO] Initializing DQN Agent...")
+        state_size = 5  # Example: EMA_20, EMA_200, ATR, current_price, position size
         action_size = 3  # Actions: [Hold=0, Buy=1, Sell=2]
         self.agent = DQNLSTMAgent(state_size=state_size, action_size=action_size)
 

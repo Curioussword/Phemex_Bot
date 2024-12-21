@@ -1,0 +1,16 @@
+ccxt
+
+pandas
+
+pyyaml
+
+keras 
+
+tqdm 
+
+matplotlib
+
+cachetools
+
+scikit-learn
+
