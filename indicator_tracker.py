@@ -47,7 +47,8 @@ class TimeframeData:
         })
 
         # Append the new candle and maintain window size
-        self.data = pd.concat([self.data, new_candle], ignore_index=True)
+        if new_candle.empty and not self.data.empty:
+            self.data = pd.concat([self.data, new_candle], ignore_index=True)
         if len(self.data) > self.window_size:
             self.data = self.data.iloc[-self.window_size:]
 

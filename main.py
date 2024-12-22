@@ -81,11 +81,33 @@ class TradingSystem:
 
     def prepare_state(self):
         """Prepare normalized state vector from PhemexBot."""
-        state = self.bot.get_combined_features()
-        if state is None:
-            print("[WARNING] Insufficient data for state preparation.")
+        try:
+            # Fetch combined features (e.g., indicators, market data)
+            state = self.bot.get_combined_features()
+
+            # Check if sufficient data is available
+            if not hasattr(self, 'data') or len(self.data) < self.required_length:
+                print("[WARNING] Not enough data available for state preparation.")
+                time.sleep(60)  # Wait for more data to accumulate
+                return None
+
+            # Check if indicators are missing
+            if self.indicators_missing():
+                print("[WARNING] Missing indicators required for state preparation.")
+                return None
+
+            # Check if state is valid
+            if state is None:
+                print("[WARNING] Insufficient data for state preparation.")
+                return None
+
+            # Return the prepared state
+            return state
+
+        except Exception as e:
+            print(f"[ERROR] Failed to prepare state: {e}")
             return None
-        return state
+
 
     def run(self):
         """Main trading loop with real-time learning."""

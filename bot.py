@@ -1,8 +1,10 @@
 import ccxt
 import pandas as pd
 import time
+import csv
 from datetime import datetime
 from utils import load_config
+import numpy as np
 from exchange_setup import initialize_exchange
 from data_fetcher import fetch_live_data
 from indicator_tracker import PhemexBot
@@ -104,10 +106,8 @@ def execute_trade(order_type, amount, config, current_price, exchange):
         print(f"[ERROR] Critical error in execute_trade: {main_error}")
 
 
-def log_trade(order_type, amount, price):
-    """
-    Log trade details.
-    """
+def log_trade(order_type, amount, price, order=None):
+    """Log trade details to a CSV file."""
     global last_trade
 
     trade_data = {
@@ -115,15 +115,31 @@ def log_trade(order_type, amount, price):
         "order_type": order_type,
         "amount": amount,
         "price": price,
+        "status": "executed" if order else "simulated",
+        "PnL": 0,
     }
 
+    # Calculate PnL if applicable
     if last_trade and last_trade["order_type"] != order_type:
         if order_type == "SELL":
             trade_data["PnL"] = (price - last_trade["price"]) * amount
         elif order_type == "BUY":
             trade_data["PnL"] = (last_trade["price"] - price) * amount
 
-    last_trade = trade_data
+    # Append trade log
+    trade_log.append(trade_data)
+
+    # Save to CSV file
+    log_file = os.path.join("logs", "trade_log.csv")
+    file_exists = os.path.isfile(log_file)
+    
+    with open(log_file, mode="a", newline="") as file:
+        writer = csv.DictWriter(file, fieldnames=trade_data.keys())
+        if not file_exists:
+            writer.writeheader()  # Write header only once
+        writer.writerow(trade_data)
+
+    print(f"[INFO] Trade logged: {trade_data}")
 
 
 def update_replay_memory(agent, state, action, reward, next_state):
