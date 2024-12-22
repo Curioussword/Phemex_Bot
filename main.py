@@ -90,27 +90,19 @@ class TradingSystem:
             print(f"[ERROR] Failed to update market data: {e}")
 
     def prepare_state(self):
-        """Prepare normalized state vector from PhemexBot."""
+        required_timeframes = ['5m', '15m']
+        min_candles = 20  # Minimum candles needed for feature calculation
+
+        for tf in required_timeframes:
+            if tf not in self.bot.timeframes or len(self.bot.timeframes[tf].data) < min_candles:
+                print(f"[WARNING] Insufficient data for {tf} timeframe. Need at least {min_candles} candles.")
+                return None
+
         try:
-            state = self.bot.get_combined_features()
-
-            if not hasattr(self, 'data') or len(self.data) < self.required_length:
-                print("[WARNING] Not enough data available for state preparation.")
-                time.sleep(60)
-                return None
-
-            if self.indicators_missing():
-                print("[WARNING] Missing indicators required for state preparation.")
-                return None
-
-            if state is None:
-                print("[WARNING] Insufficient data for state preparation.")
-                return None
-
-            return state
-
+            features = self.bot.get_combined_features()
+            return features
         except Exception as e:
-            print(f"[ERROR] Failed to prepare state: {e}")
+            print(f"[ERROR] State preparation failed: {e}")
             return None
 
     def run(self):

@@ -86,15 +86,34 @@ class StateManager:
     def check_and_display_positions(self, symbol, current_price):
         """Check and display open positions at specified intervals."""
         current_time = time.time()
+    
         if current_time - self.last_position_check >= self.position_check_interval:
-            open_position_count = self.display_open_positions(symbol, current_price)
-            if open_position_count >= 5:
-                print("[INFO] Monitoring ongoing due to sufficient open positions.")
-                self.current_state = BotState.TRADING
-            else:
-                print("[INFO] Fewer than 5 open positions. Looking for new trading opportunities...")
-                self.current_state = BotState.SEARCHING
-            self.last_position_check = current_time
+            try:
+                # Get position details
+                total_size, positions = self.get_positions_details(symbol)
+            
+                # Display positions with proper error handling
+                open_position_count = self.display_open_positions(symbol, current_price)
+            
+                # Update bot state based on position count and risk metrics
+                if open_position_count >= 5:
+                    if total_size > self.max_position_size:
+                        print("[WARNING] Total position size exceeds maximum allowed")
+                        return False
+                
+                    self.current_state = BotState.TRADING
+                    print(f"[INFO] Monitoring {open_position_count} active positions")
+                else:
+                    self.current_state = BotState.SEARCHING
+                    print(f"[INFO] Searching for entries ({open_position_count}/5 positions open)")
+            
+                self.last_position_check = current_time
+                return True
+            
+            except Exception as e:
+                print(f"[ERROR] Position check failed: {e}")
+                return False
+
 
     def get_positions_details(self, symbol):
         """Fetch total size and detailed open positions."""

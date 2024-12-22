@@ -122,31 +122,48 @@ class DQNLSTMAgent:
 
 
 # training loop
-if __name__ == "__main__":
-    agent = DQNLSTMAgent(state_size=5, action_size=3)
+def __init__(self, state_size=None):
+    self.state_size = state_size or len(self.get_feature_names())
+    self.action_size = 3  # Buy, Sell, Hold
+    self.memory = deque(maxlen=2000)
+    self.gamma = 0.95
+    self.epsilon = 1.0
+    self.epsilon_min = 0.01
+    self.epsilon_decay = 0.995
+    self.learning_rate = 0.001
+    
+    # Initialize models
+    self.model = self._build_model()
+    self.target_model = clone_model(self.model)
+    self.target_model.set_weights(self.model.get_weights())
+
 
     # Try loading the latest checkpoint
-    agent.load_checkpoint()
-
-    for episode in range(1, 101):  # Train for 100 episodes
-        state = np.random.rand(5)  # Example state (replace with actual environment state)
+    def train(self, episodes=100, batch_size=32):
+        self.load_checkpoint()  # Load previous training if available
+    
+        for episode in range(1, episodes + 1):
+            state = self.get_initial_state()  # Replace with actual state initialization
+            episode_reward = 0
+            step = 0
         
-        done = False
-
-        while not done:
-            action = agent.act(state)  # Choose action (e.g., Buy/Sell/Hold)
+            while not self.is_episode_done(step):
+                action = self.act(state)
+                next_state, reward, done = self.step(action)  # Implement actual environment step
             
-            next_state = np.random.rand(5)  # Example next state (replace with actual environment logic)
-            reward = np.random.rand()      # Example reward (replace with actual reward calculation)
-            done = random.choice([True, False])  # Example termination condition
+                self.remember(state, action, reward, next_state, done)
+                self.replay(batch_size)
             
-            agent.remember(state, action, reward, next_state, done)
-            agent.replay(batch_size=32)
+                if step % 100 == 0:  # Update target network periodically
+                    self.update_target_model()
+                
+                state = next_state
+                episode_reward += reward
+                step += 1
+            
+            if episode % 10 == 0:
+                self.save_checkpoint(episode)
+                print(f"Episode: {episode}, Reward: {episode_reward}, Epsilon: {self.epsilon:.2f}")
 
-            state = next_state
 
-        # Save a checkpoint every 10 episodes
-        if episode % 10 == 0:
-            agent.save_checkpoint(episode)
-
-    print("[INFO] Training complete.")
+        print("[INFO] Training complete.")
