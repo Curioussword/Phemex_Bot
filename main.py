@@ -4,9 +4,8 @@ import numpy as np
 from tqdm import tqdm
 import pandas as pd
 
-
 from utils import load_config
-from data_fetcher import fetch_live_data_with_cache
+from data_fetcher import fetch_live_data_with_cache, preprocess_and_resample_data
 from exchange_setup import initialize_exchange
 from indicator_tracker import PhemexBot
 from state_manager import StateManager
@@ -62,52 +61,57 @@ class TradingSystem:
             return None
 
     def update_market_data(self):
-        """Fetch and cache 5-minute market data."""
+        """
+        Fetch, preprocess, and cache market data for multiple timeframes.
+        """
         try:
-            print("[DEBUG] Fetching new 5m data...")
-            data = fetch_live_data_with_cache(
-                self.config['trade_parameters']['symbol'],
-                exchange=self.exchange,
-                limit=1000
-            )
-            if not data.empty:
-                print(f"[DEBUG] Fetched {len(data)} candles for 5m timeframe.")
-                for _, row in data.iterrows():
-                    self.bot.add_candle('5m', row['timestamp'], row['open'], row['high'], row['low'], row['close'], row['volume'])
-            else:
-                print("[WARNING] No data fetched for 5m timeframe.")
+            base_timeframes = ['1m', '5m', '15m', '1h']  # Base timeframes to fetch
+            for timeframe in base_timeframes:
+                print(f"[DEBUG] Fetching new {timeframe} data...")
+                raw_data = fetch_live_data_with_cache(
+                    self.config['trade_parameters']['symbol'],
+                    exchange=self.exchange,
+                    timeframe=timeframe,
+                    limit=1000
+                )
+
+                if not raw_data.empty:
+                    processed_data = preprocess_and_resample_data(raw_data, fetched_timeframe=timeframe)
+
+                    if not processed_data.empty:
+                        print(f"[DEBUG] Processed {len(processed_data)} candles for {timeframe} timeframe.")
+                        for _, row in processed_data.iterrows():
+                            self.bot.add_candle(timeframe, row.name, row['open'], row['high'], row['low'], row['close'], row['volume'])
+                    else:
+                        print(f"[WARNING] No valid processed data available for {timeframe}.")
+                else:
+                    print(f"[WARNING] No raw market data fetched for {timeframe}.")
         except Exception as e:
             print(f"[ERROR] Failed to update market data: {e}")
 
     def prepare_state(self):
         """Prepare normalized state vector from PhemexBot."""
         try:
-            # Fetch combined features (e.g., indicators, market data)
             state = self.bot.get_combined_features()
 
-            # Check if sufficient data is available
             if not hasattr(self, 'data') or len(self.data) < self.required_length:
                 print("[WARNING] Not enough data available for state preparation.")
-                time.sleep(60)  # Wait for more data to accumulate
+                time.sleep(60)
                 return None
 
-            # Check if indicators are missing
             if self.indicators_missing():
                 print("[WARNING] Missing indicators required for state preparation.")
                 return None
 
-            # Check if state is valid
             if state is None:
                 print("[WARNING] Insufficient data for state preparation.")
                 return None
 
-            # Return the prepared state
             return state
 
         except Exception as e:
             print(f"[ERROR] Failed to prepare state: {e}")
             return None
-
 
     def run(self):
         """Main trading loop with real-time learning."""
@@ -116,21 +120,17 @@ class TradingSystem:
 
         for episode in tqdm(range(episodes), desc="Episodes"):
             try:
-                # Update market data and indicators
                 self.update_market_data()
-
-                # Prepare state for the DQN agent
                 state = self.prepare_state()
                 if state is None:
+                    print("[WARNING] Insufficient state data. Waiting for more candles...")
                     time.sleep(60)
                     continue
 
-                # Use DQN agent to decide action: Hold=0, Buy=1, Sell=2
                 action = self.agent.act(state)
-
-                # Fetch the current price for trade execution
                 current_price = self.get_current_price()
                 if current_price is None:
+                    print("[WARNING] Failed to fetch current price. Retrying...")
                     time.sleep(60)
                     continue
 
@@ -153,20 +153,18 @@ class TradingSystem:
                 else:
                     print("[INFO] Hold signal detected.")
 
-                # Calculate reward based on PnL and transaction costs (example logic)
                 unrealized_pnl = self.state_manager.get_unrealized_pnl(self.config['trade_parameters']['symbol'])
                 transaction_costs = self.config['trade_parameters'].get('transaction_costs', 0)
                 reward = unrealized_pnl - transaction_costs
 
-                # Store experience in replay memory and train periodically
                 next_state = self.prepare_state()
-                done = False  # Define when an episode ends (e.g., end of trading session)
+                done = False
                 self.agent.remember(state, action, reward, next_state, done)
 
                 if len(self.agent.memory) > batch_size:
                     self.agent.replay(batch_size)
 
-                time.sleep(60)  # Wait before next cycle
+                time.sleep(60)
 
             except KeyboardInterrupt:
                 print("\n[INFO] Gracefully shutting down trading bot...")

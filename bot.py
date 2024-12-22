@@ -48,16 +48,34 @@ def execute_trade(order_type, amount, config, current_price, exchange):
         total_size, position_details = get_positions_details(exchange, symbol)
 
         # Check if adding this trade exceeds MAX_SIZE
-        if total_size + amount > MAX_SIZE:
-            print(f"[WARNING] Max size exceeded. Current total: {total_size}, Attempted: {amount}, Max: {MAX_SIZE}")
+        max_size = config['trade_parameters']['max_size']
+        if total_size + amount > max_size:
+            print(f"[WARNING] Max size exceeded. Current total: {total_size}, Attempted: {amount}, Max: {max_size}")
+            return
+
+        # Fetch live market data with caching
+        print("[DEBUG] Fetching live market data...")
+        raw_data = fetch_live_data_with_cache(symbol, exchange, timeframe='1m', limit=1000)
+
+        if raw_data.empty:
+            print("[ERROR] No valid market data fetched. Aborting trade.")
+            return
+
+        # Preprocess and resample the fetched data into desired timeframes
+        processed_data = preprocess_and_resample_data(raw_data, fetched_timeframe='1m')
+
+        if processed_data.empty:
+            print("[ERROR] Failed to preprocess market data. Aborting trade.")
             return
 
         # Fetch EMA levels and ATR for dynamic TP/SL
-        ema_20, ema_200 = fetch_live_data(symbol)[:2]  # Ensure this returns required data
-        atr = fetch_live_data(symbol)[2]  # Ensure ATR is fetched
+        ema_20 = processed_data['5_min', 'close'].ewm(span=20).mean().iloc[-1]
+        ema_200 = processed_data['5_min', 'close'].ewm(span=200).mean().iloc[-1]
+        atr = processed_data['5_min', 'high'].rolling(window=14).max().iloc[-1] - \
+              processed_data['5_min', 'low'].rolling(window=14).min().iloc[-1]
 
         if ema_20 is None or ema_200 is None or atr is None:
-            print("[ERROR] Failed to fetch necessary data for TP/SL calculation. Aborting trade.")
+            print("[ERROR] Missing indicators for TP/SL calculation. Aborting trade.")
             return
 
         # Dynamically calculate TP and SL levels
@@ -79,6 +97,7 @@ def execute_trade(order_type, amount, config, current_price, exchange):
 
         # Place Stop Loss and Take Profit orders
         tp_sl_side = "BUY" if order_type == "SELL" else "SELL"
+        
         exchange.create_order(
             symbol=symbol,
             type="stop",
@@ -104,7 +123,6 @@ def execute_trade(order_type, amount, config, current_price, exchange):
 
     except Exception as main_error:
         print(f"[ERROR] Critical error in execute_trade: {main_error}")
-
 
 def log_trade(order_type, amount, price, order=None):
     """Log trade details to a CSV file."""

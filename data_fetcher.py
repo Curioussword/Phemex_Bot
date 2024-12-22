@@ -2,6 +2,7 @@ from cachetools import TTLCache
 import time
 import pandas as pd
 import numpy as np
+from sklearn.preprocessing import StandardScaler
 import ccxt
 
 # Initialize cache with a TTL of 300 seconds (5 minutes)
@@ -30,6 +31,7 @@ def fetch_live_data(symbol, exchange, timeframe='5m', limit=500):
 
         # Convert timestamp to datetime
         data['timestamp'] = pd.to_datetime(data['timestamp'], unit='ms')
+        data.set_index('timestamp', inplace=True)
 
         # Filter out invalid candles (e.g., volume == 0 or identical OHLC values)
         valid_data = data[
@@ -81,43 +83,86 @@ def fetch_live_data_with_cache(symbol, exchange, timeframe='5m', limit=500):
     
     return data
 
-def preprocess_data(data):
+def preprocess_and_resample_data(df, fetched_timeframe):
     """
-    Preprocess market data by normalizing features.
+    Preprocess and resample OHLCV data for specified and derived timeframes.
+    Handles missing data, reindexes to complete time range, and aggregates data.
     """
-    if data.empty:
-        print("[WARNING] No valid market data to preprocess.")
-        return None
-
-    scaler = StandardScaler()
-    
     try:
-        # Normalize numerical columns (excluding timestamp)
-        numerical_columns = ['open', 'high', 'low', 'close', 'volume']
-        scaled_data = scaler.fit_transform(data[numerical_columns])
-        
-        # Replace original columns with normalized values
-        normalized_data = pd.DataFrame(scaled_data, columns=numerical_columns)
-        normalized_data['timestamp'] = data['timestamp'].values
-        
-        return normalized_data
+        # Ensure the DataFrame has a datetime index
+        if not isinstance(df.index, pd.DatetimeIndex):
+            df['timestamp'] = pd.to_datetime(df['timestamp'])
+            df.set_index('timestamp', inplace=True)
+
+        # Complete time range from start to end at 1-minute intervals if fetched timeframe is 1m
+        if fetched_timeframe == '1m':
+            full_time_range = pd.date_range(start=df.index.min(), end=df.index.max(), freq='1T')
+            df = df.reindex(full_time_range)
+
+        # Forward fill to handle missing data after reindexing
+        df.ffill(inplace=True)
+
+        # Aggregate the data as before
+        df = df.resample(fetched_timeframe).agg({
+            'open': 'first',
+            'high': 'max',
+            'low': 'min',
+            'close': 'last',
+            'volume': 'sum'
+        })
+
+        # Sort the DataFrame by the index (just in case)
+        df.sort_index(inplace=True)
+
+        # Define the derived time frames and corresponding new column names
+        derived_time_frames = ['5T', '15T', '30T', '60T', '240T', '1440T']  # in minutes
+        new_columns = ['5_min', '15_min', '30_min', '1_hour', '4_hour', '1_day']
+        columns_to_resample = ['open', 'close', 'high', 'low', 'volume']
+
+        # Initialize a MultiIndex for the new columns
+        tuples = [(col, sub_col) for col in new_columns for sub_col in columns_to_resample]
+        multi_index = pd.MultiIndex.from_tuples(tuples)
+        resampled_df = pd.DataFrame(index=df.index, columns=multi_index)
+
+        # Assigning resampled values to new columns and sub-columns
+        for time_frame, col in zip(derived_time_frames, new_columns):
+            df_resampled = df.resample(time_frame).agg({
+                'open': 'first',
+                'high': 'max',
+                'low': 'min',
+                'close': 'last',
+                'volume': 'sum'
+            })
+
+            # Forward fill the resampled data to avoid NaN values
+            df_resampled.ffill(inplace=True)
+
+            # Assign resampled values to sub-columns
+            for sub_col in columns_to_resample:
+                resampled_df[(col, sub_col)] = df_resampled[sub_col]
+
+        # Combine the original df with the resampled_df
+        df_combined = pd.concat([df, resampled_df], axis=1)
+
+        # Reorder the columns to match the expected order
+        column_order = ['open', 'close', 'high', 'low', 'volume'] + list(resampled_df.columns)
+        df_combined = df_combined[column_order]
+
+        # Forward fill again to handle any NaN values after reindexing
+        df_combined.ffill(inplace=True)
+
+        # Back fill to complete any remaining missing data
+        df_combined.bfill(inplace=True)
+
+        # Check for NaN values (for debugging purposes)
+        nan_values = df_combined.isna().sum()
+        print("[DEBUG] NaN values per column:")
+        print(nan_values)
+
+        return df_combined
 
     except Exception as e:
-        print(f"[ERROR] Failed to preprocess market data: {e}")
-    
-    return None
+        print(f"[ERROR] Failed to preprocess and resample data: {e}")
+        return pd.DataFrame()
 
-# Example usage
-if __name__ == "__main__":
-    exchange = ccxt.binance()  # Replace with your actual exchange instance
-    symbol = "BTC/USDT"
-
-    # Fetch and preprocess market data with caching
-    raw_data = fetch_live_data_with_cache(symbol, exchange)
-    
-    if not raw_data.empty:
-        processed_data = preprocess_data(raw_data)
-        
-        if processed_data is not None:
-            print("[INFO] Preprocessed market data:")
-            print(processed_data.head())
+            
