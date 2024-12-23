@@ -61,33 +61,46 @@ class TradingSystem:
             return None
 
     def update_market_data(self):
-        """
-        Fetch, preprocess, and cache market data for multiple timeframes.
-        """
-        try:
-            base_timeframes = ['1m', '5m', '15m', '1h']  # Base timeframes to fetch
-            for timeframe in base_timeframes:
-                print(f"[DEBUG] Fetching new {timeframe} data...")
-                raw_data = fetch_live_data_with_cache(
-                    self.config['trade_parameters']['symbol'],
-                    exchange=self.exchange,
-                    timeframe=timeframe,
-                    limit=1000
-                )
+	    """
+	    Fetch, preprocess, and cache market data for multiple timeframes.
+	    """
+	    try:
+	        base_timeframes = ['5m', '15m', '1h']  # Removed 1m as it's not used for indicators
+	        for timeframe in base_timeframes:
+	            print(f"[DEBUG] Fetching new {timeframe} data...")
+	            raw_data = fetch_live_data_with_cache(
+	                self.config['trade_parameters']['symbol'],
+	                exchange=self.exchange,
+	                timeframe=timeframe,
+	                limit=1000
+	            )
 
-                if not raw_data.empty:
-                    processed_data = preprocess_and_resample_data(raw_data, fetched_timeframe=timeframe)
+	            if not raw_data.empty:
+	                processed_data = preprocess_and_resample_data(raw_data, timeframe)
+	                if processed_data is not None and not processed_data.empty:
+	                    print(f"[DEBUG] Processed {len(processed_data)} candles for {timeframe} timeframe.")
+	                    for _, row in processed_data.iterrows():
+	                        self.bot.add_candle(
+	                            timeframe=timeframe,
+	                            timestamp=row.name,
+	                            open_=row['open'],
+	                            high_=row['high'],
+	                            low_=row['low'],
+	                            close_=row['close'],
+	                            volume=row['volume']
+	                        )
+	                else:
+	                    print(f"[WARNING] No valid processed data available for {timeframe}.")
+	            else:
+	                print(f"[WARNING] No raw market data fetched for {timeframe}.")
+                
+	        return True
 
-                    if not processed_data.empty:
-                        print(f"[DEBUG] Processed {len(processed_data)} candles for {timeframe} timeframe.")
-                        for _, row in processed_data.iterrows():
-                            self.bot.add_candle(timeframe, row.name, row['open'], row['high'], row['low'], row['close'], row['volume'])
-                    else:
-                        print(f"[WARNING] No valid processed data available for {timeframe}.")
-                else:
-                    print(f"[WARNING] No raw market data fetched for {timeframe}.")
-        except Exception as e:
-            print(f"[ERROR] Failed to update market data: {e}")
+	    except Exception as e:
+	        print(f"[ERROR] Market data update failed: {e}")
+	        return False
+
+
 
     def prepare_state(self):
         required_timeframes = ['5m', '15m']
