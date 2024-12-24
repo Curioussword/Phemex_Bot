@@ -6,9 +6,9 @@ def connect_to_db():
         conn = psycopg2.connect(
             dbname="trading_data",
             user="postgres",
-            password="Kaye0315",
-            host="172.18.0.2",  # Change this if using a remote server
-            port="5432"
+            password="xxxx",
+            host="xxxxxxxx",  # Change this if using a remote server
+            port="xxxx"
         )
         return conn
     except Exception as e:
